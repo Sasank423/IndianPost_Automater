@@ -17,7 +17,7 @@ from base64 import b64decode
 import pandas as pd
 import requests
 import os
-from time import sleep
+from time import sleep,time
 
 
 import zipfile
@@ -43,7 +43,7 @@ def pdf_gen(pdfs, file_names=None):
 # Create a download button for the ZIP file
 
 
-def start(df,start_,end):
+def start(df,i,l,sleep_):
     reader = easyocr.Reader(['en'])
     driver = webdriver.Chrome()
     driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
@@ -78,13 +78,10 @@ def start(df,start_,end):
             return cap[3] if len(cap) >= 4 else ''
         if context == 'Enter the Fifth number':
             return cap[4] if len(cap) == 5 else ''
+        return ''
         
     
     pdfs = []
-    
-    l = int(end)  if end != '' else len(refs)
-    i = int(start_)  if start_ != '' else 1
-    
     df = df[i-1:l]
     df.index = range(i,l+1)
     df_view = st.empty()
@@ -93,7 +90,7 @@ def start(df,start_,end):
     with st.spinner('Please wait..'):
         sleep(1)
     with st.status("Processing.....",expanded=True):
-        try:
+#         try:
             while i<=l:
                 ref = df.loc[i,'RPAD Barcode No ']
                 if str(ref)=='nan':
@@ -104,35 +101,51 @@ def start(df,start_,end):
                 ip.send_keys(ref)
                 while 'number' not in driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_lblCaptcha').text:
                     driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_imgbtnCaptcha').click()
-                    sleep(1)
+                    sleep(2)
     #             c = 0
                 cap = ''
+                
+                t = time()
+                flag = False 
                 while cap=='':
                     cap = captcha_context()
+                    if time()-t > 30 :
+                        flag = True 
+                        break 
+                if flag:
+                    driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
+                    continue
                 driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_txtCaptcha').send_keys(cap)
                 try:
                     driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_btnSearch').click()
                 except :
-                    if c==5:
-                        df.loc[i,'Delivery Report'] = None
-                        df.loc[i,'date'] = None
-                        df.loc[i,'time'] = None
-                        df.loc[i,'office'] = None
-                        pdfs.append('')
-                        i += 1
-                        driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
-                        continue 
-                    i += 1
-                    sleep(1)
-                    c += 1
-                    continue
+                    pass
+#                     if c==5:
+#                         df.loc[i,'Delivery Report'] = None
+#                         df.loc[i,'date'] = None
+#                         df.loc[i,'time'] = None
+#                         df.loc[i,'office'] = None
+#                         pdfs.append('')
+#                         i += 1
+#                         driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
+#                         continue 
+#                     i += 1
+#                     sleep(1)
+#                     c += 1
+#                     continue
                 
+                t = time()
                 while True:
+                    
                     try:
                         btn = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_btnTrackMore')
                         break
                     except:
                         pass
+                    if time()-t > sleep_:
+                        st.write(str(i)+') Record '+ref+' Failed!!!.')
+                        i += 1
+                        break
                     
                 try:
                     df.loc[i,'Delivery Report'] = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[4]").text)
@@ -148,10 +161,11 @@ def start(df,start_,end):
                 except:
                     i-=1
                 i+=1   
-                sleep(1)
+                sleep(2)
     #     pdfs = pdf_gen(pdfs,refs)
-    except:
-        pass
+#         except Exception as e:
+#             print(e)
+#             pass
     return df
     
 
@@ -165,7 +179,8 @@ with cols[0]:
     start_ = st.text_input('Start at : ',placeholder='Index')
 with cols[1]:
     end = st.text_input('End at : ',placeholder='Index')
-
+with cols[2]:
+    sleep_ = st.text_input('Limit : ',placeholder='Secounds')
 with cols[3]:
     st.write()
     st.write()
@@ -178,7 +193,22 @@ if bt:
         if len(list(df.columns)) != 6:
             st.error('ERROR!!! Invalid Excel Format')
         df.columns = ['Name','RPAD Barcode No ','date','time','office','Delivery Report']
-        df = start(df,start_,end)
+        for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report']:
+            df[i] = df[i].astype(str)
+
+        if start_ == '' or not start_.isdigit():
+            start_ = 1
+        else:
+            start_ = int(start_)
+        if end == '' or not end.isdigit():
+            end = len(df['RPAD Barcode No '])
+        else:
+            end = int(end)
+        if sleep_ == '' or not sleep_.isdigit():
+            sleep_ = 4
+        else:
+            sleep_ = int(sleep_)
+        df = start(df,start_,end,sleep_)
         excel_file = BytesIO()
         with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w',) as writer:
             df.to_excel(writer, index=False)
