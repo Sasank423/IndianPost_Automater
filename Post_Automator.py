@@ -1,57 +1,40 @@
 #For Process
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+
 from xlsxwriter import Workbook
 
 
 from PIL import Image
-from io import BytesIO
+import io
 import sys
 import easyocr
+import zipfile
 
 from base64 import b64decode
 import pandas as pd
 import requests
 import os
 from time import sleep,time
+import datetime
 
-
-import zipfile
-from io import BytesIO
-
-# Function to generate ZIP file containing PDFs
-def generate_zip(pdf_files, zip_file_path):
-    with zipfile.ZipFile(zip_file_path, 'w') as zipf:
-        for pdf_content, file_name in pdf_files:
-            zipf.writestr(file_name, pdf_content.getvalue())
-
-# Function to generate PDFs and return as BytesIO objects
-def pdf_gen(pdfs, file_names=None):
-    pdfs_zip = []    
-    for i, file_name in zip(pdfs,file_names):
-        pdf_content = BytesIO() 
-        pdf_content.write(i)  
-        pdf_content.seek(0) 
-        pdfs_zip.append((pdf_content, file_name))  # Append (pdf_content, file_name) tuple to list
-    
-    generate_zip(pdfs_zip,'output.zip')
-
-# Create a download button for the ZIP file
-
-
-def start(df,i,l,sleep_):
+def start(df,i,l,sleep_,pdf_opt):
     reader = easyocr.Reader(['en'])
-    driver = webdriver.Chrome()
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--no-sandbox')
+    driver = webdriver.Chrome(options=chrome_options)
+    
     driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
     def captcha_solve():
         link = driver.find_element(By.XPATH,"//div[@class = 'input-group']//img").get_attribute('src')
         response = requests.get(link)
         sleep(4)
-        image = Image.open(BytesIO(response.content))
+        image = Image.open(io.BytesIO(response.content))
         image = image.convert('RGB')
         image.save('captcha.jpg', 'JPEG')
         
@@ -70,7 +53,7 @@ def start(df,i,l,sleep_):
         context = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_lblCaptcha').text
         if context == 'Enter the First number':
             return cap[0] if len(cap) >= 1 else ''
-        if context == 'Enter the Secound number':
+        if context == 'Enter the Second number':
             return cap[1] if len(cap) >= 2 else ''
         if context == 'Enter the Third number':
             return cap[2] if len(cap) >= 3 else ''
@@ -90,19 +73,23 @@ def start(df,i,l,sleep_):
     with st.spinner('Please wait..'):
         sleep(1)
     with st.status("Processing.....",expanded=True):
-#         try:
+        try:
+            ot = time()
+            rt = 0
             while i<=l:
                 ref = df.loc[i,'RPAD Barcode No ']
                 if str(ref)=='nan':
                     i += 1
-                    continue 
+                    continue
+                if rt == 0:
+                    rt = time()
                 ip = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_txtOrignlPgTranNo')
                 ip.clear()
                 ip.send_keys(ref)
                 while 'number' not in driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_lblCaptcha').text:
                     driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_imgbtnCaptcha').click()
                     sleep(2)
-    #             c = 0
+
                 cap = ''
                 
                 t = time()
@@ -120,21 +107,8 @@ def start(df,i,l,sleep_):
                     driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_btnSearch').click()
                 except :
                     pass
-#                     if c==5:
-#                         df.loc[i,'Delivery Report'] = None
-#                         df.loc[i,'date'] = None
-#                         df.loc[i,'time'] = None
-#                         df.loc[i,'office'] = None
-#                         pdfs.append('')
-#                         i += 1
-#                         driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
-#                         continue 
-#                     i += 1
-#                     sleep(1)
-#                     c += 1
-#                     continue
-                
                 t = time()
+                flag = False
                 while True:
                     
                     try:
@@ -143,36 +117,42 @@ def start(df,i,l,sleep_):
                     except:
                         pass
                     if time()-t > sleep_:
-                        st.write(str(i)+') Record '+ref+' Failed!!!.')
-                        i += 1
+                        flag = True 
                         break
-                    
+                
+                if flag:
+                    driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
+                    continue  
                 try:
                     df.loc[i,'Delivery Report'] = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[4]").text)
                     df.loc[i,'date']   = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[1]").text)
                     df.loc[i,'time']  = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[2]").text)
                     df.loc[i,'office'] = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[3]").text)
+                    if pdf_opt:
+                        pdfs.append((driver.execute_cdp_cmd('Page.printToPDF',{})['data'],ref+'.pdf'))
                     btn.click()
                     df_view.dataframe(df)
-    #                 pdfs.append(driver.execute_cdp_cmd('Page.printToPDF',{})['data'])
-                    st.write(str(i)+') Record '+ref+' is Completd.')
+                    
+                    rt = str(datetime.timedelta(seconds=int(time()-rt))).split(':')
+                    st.write(str(i)+') Record '+ref+' is Completd  -  '+rt[1]+':'+rt[2])
+                    rt = 0
                     i += 1
                     count += 1
                 except:
                     i-=1
                 i+=1   
                 sleep(2)
-    #     pdfs = pdf_gen(pdfs,refs)
-#         except Exception as e:
-#             print(e)
-#             pass
-    return df
+        except :
+            pass
+        ot = str(datetime.timedelta(seconds=int(time()-ot)))
+        st.write('Total time :- '+ot)
+    return df,pdfs
     
 
 import streamlit as st
 
 uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
-cols = st.columns(4)
+cols = st.columns(5)
 
 # Create a file uploader widget
 with cols[0]:
@@ -182,9 +162,11 @@ with cols[1]:
 with cols[2]:
     sleep_ = st.text_input('Limit : ',placeholder='Secounds')
 with cols[3]:
+    pdf_opt = st.checkbox("Generate PDF's")
+with cols[4]:
     st.write()
     st.write()
-    bt = st.button('Start the Process',help='Click to start the process')
+    bt = st.button('START',help='Click to start the process')
 # Check if a file was uploaded
 if bt:
     if  uploaded_file is not None:
@@ -208,27 +190,27 @@ if bt:
             sleep_ = 4
         else:
             sleep_ = int(sleep_)
-        df = start(df,start_,end,sleep_)
-        excel_file = BytesIO()
-        with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w',) as writer:
-            df.to_excel(writer, index=False)
-        excel_content = excel_file.getvalue()
-
+        df,pdfs = start(df,start_,end,sleep_,pdf_opt)
+        zip_data = io.BytesIO()
+        with zipfile.ZipFile(zip_data, 'w') as zipf:
+        # Add Excel file to the zip folder with a custom file name
+            excel_file = io.BytesIO()
+            with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w') as writer:
+                df.to_excel(writer, index=False)
+            excel_file.seek(0)
+            zipf.writestr('output.xlsx', excel_file.read())
+    
     # Provide Excel content as binary data to the download_button
-        st.download_button(
-                        label="Download Excel",
-                        data=excel_content,
-                        file_name="output.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-    #     st.download_button(
-    #                         label="Download PDFs",
-    #                         data='output.zip',
-    #                         file_name="pdfs.zip",
-    #                         mime="application/zip"
-    #                     )
+#         st.download_button(label="Download Excel", data=excel_content, file_name="output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        
+        if pdf_opt:
+            # Create a zip file in memory
+            with zipfile.ZipFile(zip_data, 'a') as zipf:
+                for pdf_data, pdf_name in pdfs:
+                    zipf.writestr(pdf_name+'.pdf', b64decode(pdf_data))
+            # Provide a download button for the zip file
+        st.download_button(label='Download Files', data=zip_data.getvalue(), file_name='output.zip', mime='application/zip',help="Click to Download Excel File and PDF's")
+        
     else:
         st.error('No file Selected!!!')
     
-
