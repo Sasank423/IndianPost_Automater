@@ -1,10 +1,10 @@
-#For Process
+# #For Process
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-
+# 
 from xlsxwriter import Workbook
 
 
@@ -20,6 +20,13 @@ import requests
 import os
 from time import sleep,time
 import datetime
+
+from openpyxl import Workbook,load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Font
+from openpyxl.cell.cell import WriteOnlyCell
+
+from tkinter.filedialog import askdirectory
 
 def start(df,i,l,sleep_,pdf_opt):
     reader = easyocr.Reader(['en'])
@@ -151,66 +158,108 @@ def start(df,i,l,sleep_,pdf_opt):
 
 import streamlit as st
 
-uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
-cols = st.columns(5)
+page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment"])
 
-# Create a file uploader widget
-with cols[0]:
-    start_ = st.text_input('Start at : ',placeholder='Index')
-with cols[1]:
-    end = st.text_input('End at : ',placeholder='Index')
-with cols[2]:
-    sleep_ = st.text_input('Limit : ',placeholder='Secounds')
-with cols[3]:
-    pdf_opt = st.checkbox("Generate PDF's")
-with cols[4]:
-    st.write()
-    st.write()
-    bt = st.button('START',help='Click to start the process')
-# Check if a file was uploaded
-if bt:
-    if  uploaded_file is not None:
-        # Read the Excel file into a pandas DataFrame
-        df = pd.read_excel(uploaded_file)
-        if len(list(df.columns)) != 6:
-            st.error('ERROR!!! Invalid Excel Format')
-        df.columns = ['Name','RPAD Barcode No ','date','time','office','Delivery Report']
-        for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report']:
-            df[i] = df[i].astype(str)
+if page == "Status Extraction":
+    uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
+    cols = st.columns(5)
 
-        if start_ == '' or not start_.isdigit():
-            start_ = 1
-        else:
-            start_ = int(start_)
-        if end == '' or not end.isdigit():
-            end = len(df['RPAD Barcode No '])
-        else:
-            end = int(end)
-        if sleep_ == '' or not sleep_.isdigit():
-            sleep_ = 4
-        else:
-            sleep_ = int(sleep_)
-        df,pdfs = start(df,start_,end,sleep_,pdf_opt)
-        zip_data = io.BytesIO()
-        with zipfile.ZipFile(zip_data, 'w') as zipf:
-        # Add Excel file to the zip folder with a custom file name
-            excel_file = io.BytesIO()
-            with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w') as writer:
-                df.to_excel(writer, index=False)
-            excel_file.seek(0)
-            zipf.writestr('output.xlsx', excel_file.read())
-    
-    # Provide Excel content as binary data to the download_button
-#         st.download_button(label="Download Excel", data=excel_content, file_name="output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # Create a file uploader widget
+    with cols[0]:
+        start_ = st.text_input('Start at : ',placeholder='Index')
+    with cols[1]:
+        end = st.text_input('End at : ',placeholder='Index')
+    with cols[2]:
+        sleep_ = st.text_input('Limit : ',placeholder='Secounds')
+    with cols[3]:
+        pdf_opt = st.checkbox("Generate PDF's")
+    with cols[4]:
+        st.write()
+        st.write()
+        bt = st.button('START',help='Click to start the process')
+    # Check if a file was uploaded
+    if bt:
+        if  uploaded_file is not None:
+            # Read the Excel file into a pandas DataFrame
+            df = pd.read_excel(uploaded_file)
+            if len(list(df.columns)) != 6:
+                st.error('ERROR!!! Invalid Excel Format')
+            df.columns = ['Name','RPAD Barcode No ','date','time','office','Delivery Report']
+            for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report']:
+                df[i] = df[i].astype(str)
+
+            if start_ == '' or not start_.isdigit():
+                start_ = 1
+            else:
+                start_ = int(start_)
+            if end == '' or not end.isdigit():
+                end = len(df['RPAD Barcode No '])
+            else:
+                end = int(end)
+            if sleep_ == '' or not sleep_.isdigit():
+                sleep_ = 4
+            else:
+                sleep_ = int(sleep_)
+            df,pdfs = start(df,start_,end,sleep_,pdf_opt)
+            zip_data = io.BytesIO()
+            with zipfile.ZipFile(zip_data, 'w') as zipf:
+            # Add Excel file to the zip folder with a custom file name
+                excel_file = io.BytesIO()
+                with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w') as writer:
+                    df.to_excel(writer, index=False)
+                excel_file.seek(0)
+                zipf.writestr('output.xlsx', excel_file.read())
         
-        if pdf_opt:
-            # Create a zip file in memory
-            with zipfile.ZipFile(zip_data, 'a') as zipf:
-                for pdf_data, pdf_name in pdfs:
-                    zipf.writestr(pdf_name+'.pdf', b64decode(pdf_data))
-            # Provide a download button for the zip file
-        st.download_button(label='Download Files', data=zip_data.getvalue(), file_name='output.zip', mime='application/zip',help="Click to Download Excel File and PDF's")
+        # Provide Excel content as binary data to the download_button
+    #         st.download_button(label="Download Excel", data=excel_content, file_name="output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            if pdf_opt:
+                # Create a zip file in memory
+                with zipfile.ZipFile(zip_data, 'a') as zipf:
+                    for pdf_data, pdf_name in pdfs:
+                        zipf.writestr(pdf_name+'.pdf', b64decode(pdf_data))
+                # Provide a download button for the zip file
+            st.download_button(label='Download Files', data=zip_data.getvalue(), file_name='output.zip', mime='application/zip',help="Click to Download Excel File and PDF's")
+            
+        else:
+            st.error('No file Selected!!!')
+    #
+
+elif page == "Hyperlink Assingment":
+    cols = st.columns(4)
+    dire = st.text_input("Select The Folder : ",placeholder='Enter the Path or select the directory')
+
+    bt = st.button('Select Directory')
+    if bt :
+        path = askdirectory()
+        excel_file_path = path+'/output.xlsx'
+        workbook = load_workbook(excel_file_path)
+        worksheet = workbook.active
+        df = pd.read_excel(path+'/output.xlsx')
+        data = {'Filename':[],'URL':[]}
+        for i in list(df['RPAD Barcode No ']):
+            data['URL'].append(i+'.pdf.pdf')
+            data['Filename'].append(i)
+            
+        # Example DataFrame with filenames and corresponding URLs
+        df = pd.DataFrame(data)
+        excel_file_path = path+'//output.xlsx'
+        # Add headers
         
-    else:
-        st.error('No file Selected!!!')
-    
+        
+        for index, row in df.iterrows():
+            filename = row['Filename']
+            url = path+'/'+row['URL']
+            
+            # Find the cell corresponding to the filename in the first column
+            for cell in worksheet['B']:
+                if cell.value == filename:
+                    # Create a hyperlink to the URL
+                    cell.font = Font(underline="single", color="0000FF")
+                    cell.hyperlink = url
+                    break
+
+      
+
+        # Save the workbook to a file
+        workbook.save(excel_file_path)
