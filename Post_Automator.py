@@ -8,8 +8,8 @@ from selenium.webdriver.common.keys import Keys
 from xlsxwriter import Workbook
 
 
-from PIL import Image
-import io
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
 import sys
 import easyocr
 import zipfile
@@ -20,6 +20,10 @@ import requests
 import os
 from time import sleep,time
 import datetime
+import base64
+
+import barcode
+from barcode.writer import ImageWriter
 
 from openpyxl import Workbook,load_workbook
 from openpyxl.utils import get_column_letter
@@ -28,6 +32,8 @@ from openpyxl.cell.cell import WriteOnlyCell
 
 from tkinter.filedialog import askdirectory
 
+
+#For Status Extraction
 def start(df,i,l,sleep_,pdf_opt):
     reader = easyocr.Reader(['en'])
     chrome_options = Options()
@@ -41,7 +47,7 @@ def start(df,i,l,sleep_,pdf_opt):
         link = driver.find_element(By.XPATH,"//div[@class = 'input-group']//img").get_attribute('src')
         response = requests.get(link)
         sleep(4)
-        image = Image.open(io.BytesIO(response.content))
+        image = Image.open(BytesIO(response.content))
         image = image.convert('RGB')
         image.save('captcha.jpg', 'JPEG')
         
@@ -154,11 +160,90 @@ def start(df,i,l,sleep_,pdf_opt):
         ot = str(datetime.timedelta(seconds=int(time()-ot)))
         st.write('Total time :- '+ot)
     return df,pdfs
+
+
+#For Barcode Generation
+
+def generate_barcode_with_text(data, barcode_type='code128'):
+    barcode_class = barcode.get_barcode_class(barcode_type)
+    barcode_instance = barcode_class(data, writer=ImageWriter())
+
+    # Save the barcode as an image file in memory without the default text
+    options = {'write_text': False}
+    barcode_image_io = BytesIO()
+    barcode_instance.write(barcode_image_io, options=options)
+    barcode_image_io.seek(0)
+    
+    # Open the barcode image
+    custom_text = data[:2]+' '+data[2:-3]+' '+data[-3:]
+
+    barcode_image = Image.open(barcode_image_io)
+
+    # Get dimensions of the barcode image
+    width, height = barcode_image.size
+
+    # Create a blank image with the same width and additional height for text
+    combined_image = Image.new('RGB', (width, height + 50), color='white')  # Increased height for text
+
+    # Paste the barcode image onto the combined image
+    combined_image.paste(barcode_image, (0, 0))
+
+    # Get a drawing context
+    draw = ImageDraw.Draw(combined_image)
+
+    # Load a font
+    try:
+        # Load a TTF font file
+        font = ImageFont.truetype("arial.ttf", 40)
+    except IOError:
+        # If the TTF font file is not found, use the default PIL font
+        font = ImageFont.load_default()
+
+    # Get text size using textbbox (text bounding box)
+    text_bbox = draw.textbbox((0, 0), custom_text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+
+    # Calculate the position to draw the text to be centered below the barcode
+    text_x = (width - text_width) // 2
+    text_y = height + 10  # 10 pixels below the barcode image
+
+    # Draw the text onto the combined image
+    draw.text((text_x, text_y), custom_text, fill='black', font=font)
+
+    # Save the combined image with text to memory
+    combined_image_io = BytesIO()
+    combined_image.save(combined_image_io, format='PNG')
+    combined_image_io.seek(0)
+    
+    return combined_image_io
+
+# Function to create a zip file with barcode images and return it in memory
+def create_zip_with_barcodes(df,pth):
+    zip_buffer = BytesIO()
+    rns = df['RN']
+    paths = []
+    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
+        for rn in rns:
+            barcode_image_io = generate_barcode_with_text(rn)
+            zip_file.writestr(f"{rn}.png", barcode_image_io.read())
+            paths.append(f"{pth}/barcodes/{rn}.png")
+        df['code'] = paths
+        # Write the DataFrame to an Excel file in memory
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+        excel_buffer.seek(0)
+        
+        # Add the Excel file to the ZIP archive
+        zip_file.writestr("updated_excel.xlsx", excel_buffer.read())
+    zip_buffer.seek(0)
+    return zip_buffer
     
 
 import streamlit as st
 
-page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment"])
+page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment","Barcode Generation"])
 
 if page == "Status Extraction":
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
@@ -201,10 +286,10 @@ if page == "Status Extraction":
             else:
                 sleep_ = int(sleep_)
             df,pdfs = start(df,start_,end,sleep_,pdf_opt)
-            zip_data = io.BytesIO()
+            zip_data = BytesIO()
             with zipfile.ZipFile(zip_data, 'w') as zipf:
             # Add Excel file to the zip folder with a custom file name
-                excel_file = io.BytesIO()
+                excel_file = BytesIO()
                 with pd.ExcelWriter(excel_file, engine='xlsxwriter', mode='w') as writer:
                     df.to_excel(writer, index=False)
                 excel_file.seek(0)
@@ -263,3 +348,35 @@ elif page == "Hyperlink Assingment":
 
         # Save the workbook to a file
         workbook.save(excel_file_path)
+
+elif page == "Barcode Generation":
+    st.title("Barcode Generator")
+
+    # File uploader
+    uploaded_file = st.file_uploader("Upload an Excel file containing RN numbers ", type=["xlsx"])
+
+    st.write('Select Output Directory : ')
+
+    if st.button('select'):
+        if uploaded_file is None:
+            st.error('Select Input File First')
+        else:
+            pth = askdirectory()        # Read the Excel file
+            df = pd.read_excel(uploaded_file)
+            try:
+                df.columns = ['RN','code']
+                zip_buffer = create_zip_with_barcodes(df,pth)
+
+            # Provide download link
+                st.download_button(
+                    label="Download ZIP file with barcodes",
+                    data=zip_buffer,
+                    file_name="barcodes.zip",
+                    mime="application/zip"
+                )
+            except Exception as e:
+                print(e)
+                st.error('Invalid File Format')
+            # Check if the DataFrame has the necessary column
+            # Create zip with barcodes
+            
