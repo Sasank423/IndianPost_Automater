@@ -243,7 +243,7 @@ def create_zip_with_barcodes(df,pth):
 
 import streamlit as st
 
-page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment","Barcode Generation"])
+page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment","Barcode Generation","PDF Name Changer"])
 
 if page == "Status Extraction":
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
@@ -380,3 +380,43 @@ elif page == "Barcode Generation":
             # Check if the DataFrame has the necessary column
             # Create zip with barcodes
             
+
+elif page == "PDF Name Changer":
+    st.title("PDF Name Changer")
+
+    # File uploader
+    uploaded_file = st.file_uploader("Upload an Excel File ", type=["xlsx"])
+    
+    if uploaded_file != None:
+        df = pd.ExcelFile(uploaded_file)
+        
+        opts = df.sheet_names
+        
+        sheet = st.selectbox("Choose the sheet:",opts,index=0)
+
+        st.write('Select PDF Directory : ')
+
+        if st.button('select'):
+            print(sheet)
+            if sheet == '':
+                st.error('Select Input File/sheet name First')
+            else:
+                path = askdirectory()
+                if path == '':
+                    st.error('select a valid path')
+                else:
+                    df = pd.read_excel(uploaded_file, sheet_name=sheet)
+                    try:
+                        l = list(df['Prospect No.'])
+                    except:
+                        st.error("Invalid column Name")
+                    
+                    for i in range(1, len(l)+1):
+                        source = f'"{path}NOTICE-{i}.pdf"'
+                        destination = f'"{path}{l[i-1]}.pdf"'
+                        os.system(f'move {source} {destination}')
+                        
+                    st.success("COMPLETED !!!!")
+                                        
+                
+    
