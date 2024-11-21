@@ -37,9 +37,9 @@ from tkinter.filedialog import askdirectory
 def start(df,i,l,sleep_,pdf_opt):
     reader = easyocr.Reader(['en'])
     chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--no-sandbox')
+#     chrome_options.add_argument('--headless')
+#     chrome_options.add_argument('--disable-gpu')
+#     chrome_options.add_argument('--no-sandbox')
     driver = webdriver.Chrome(options=chrome_options)
     
     driver.get("https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx")
@@ -142,7 +142,7 @@ def start(df,i,l,sleep_,pdf_opt):
                     df.loc[i,'time']  = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[2]").text)
                     df.loc[i,'office'] = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[3]").text)
                     if pdf_opt:
-                        pdfs.append((driver.execute_cdp_cmd('Page.printToPDF',{})['data'],ref+'.pdf'))
+                        pdfs.append((driver.execute_cdp_cmd('Page.printToPDF',{})['data'],str(df.loc[i,'Loan No'])+'.pdf'))
                     btn.click()
                     df_view.dataframe(df)
                     
@@ -243,6 +243,10 @@ def create_zip_with_barcodes(df,pth):
 
 import streamlit as st
 
+if 'df' not in st.session_state:
+    st.session_state.df = None
+    st.session_state.cols = None
+
 page = st.sidebar.radio("Select the Process", ["Status Extraction", "Hyperlink Assingment","Barcode Generation","PDF Name Changer"])
 
 if page == "Status Extraction":
@@ -267,9 +271,9 @@ if page == "Status Extraction":
         if  uploaded_file is not None:
             # Read the Excel file into a pandas DataFrame
             df = pd.read_excel(uploaded_file)
-            if len(list(df.columns)) != 6:
+            if len(list(df.columns)) != 7:
                 st.error('ERROR!!! Invalid Excel Format')
-            df.columns = ['Name','RPAD Barcode No ','date','time','office','Delivery Report']
+            df.columns = ['Loan No','Name','RPAD Barcode No ','date','time','office','Delivery Report']
             for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report']:
                 df[i] = df[i].astype(str)
 
@@ -302,7 +306,7 @@ if page == "Status Extraction":
                 # Create a zip file in memory
                 with zipfile.ZipFile(zip_data, 'a') as zipf:
                     for pdf_data, pdf_name in pdfs:
-                        zipf.writestr(pdf_name+'.pdf', b64decode(pdf_data))
+                        zipf.writestr(pdf_name, b64decode(pdf_data))
                 # Provide a download button for the zip file
             st.download_button(label='Download Files', data=zip_data.getvalue(), file_name='output.zip', mime='application/zip',help="Click to Download Excel File and PDF's")
             
@@ -322,9 +326,9 @@ elif page == "Hyperlink Assingment":
         worksheet = workbook.active
         df = pd.read_excel(path+'/output.xlsx')
         data = {'Filename':[],'URL':[]}
-        for i in list(df['RPAD Barcode No ']):
-            data['URL'].append(i+'.pdf.pdf')
-            data['Filename'].append(i)
+        for i in list(df['Loan No']):
+            data['URL'].append(str(i)+'.pdf')
+            data['Filename'].append(str(i))
             
         # Example DataFrame with filenames and corresponding URLs
         df = pd.DataFrame(data)
@@ -385,38 +389,70 @@ elif page == "PDF Name Changer":
     st.title("PDF Name Changer")
 
     # File uploader
-    uploaded_file = st.file_uploader("Upload an Excel File ", type=["xlsx"])
-    
-    if uploaded_file != None:
+    uploaded_file = st.file_uploader("Upload an Excel File", type=["xlsx"])
+
+    # If file is uploaded, process it
+    if uploaded_file is not None:
+        # If the sheet is not already loaded, read the sheet
+        
         df = pd.ExcelFile(uploaded_file)
-        
-        opts = df.sheet_names
-        
-        sheet = st.selectbox("Choose the sheet:",opts,index=0)
+        opts = df.sheet_names        
+        sheet = st.selectbox("Choose the sheet:", opts, index=0)
+        st.session_state.sheet = sheet  # Store the selected sheet in session_state
 
-        st.write('Select PDF Directory : ')
+        if sheet:
+            # Store the DataFrame and columns in session_state
+            st.session_state.df = pd.read_excel(uploaded_file, sheet_name=sheet)
+            st.session_state.cols = list(st.session_state.df.columns)
 
-        if st.button('select'):
-            print(sheet)
-            if sheet == '':
-                st.error('Select Input File/sheet name First')
-            else:
+    # If the sheet and DataFrame are loaded, use the stored DataFrame and columns
+            df = st.session_state.df
+            cols = st.session_state.cols
+
+            # Column selection (current name and new name columns)
+            ip_col = st.selectbox("Choose current name field: ", cols, index=0)
+            op_col = st.selectbox("Choose new name field: ", cols, index=1)
+
+            # Store column selections in session_state to avoid refreshing
+            st.session_state.ip_col = ip_col
+            st.session_state.op_col = op_col
+            if st.button('continue'):
+                # Select PDF directory
+                st.write('Select PDF Directory: ')
                 path = askdirectory()
-                if path == '':
-                    st.error('select a valid path')
-                else:
-                    df = pd.read_excel(uploaded_file, sheet_name=sheet)
-                    try:
-                        l = list(df['Prospect No.'])
-                    except:
-                        st.error("Invalid column Name")
-                    
-                    for i in range(1, len(l)+1):
-                        source = f'"{path}NOTICE-{i}.pdf"'
-                        destination = f'"{path}{l[i-1]}.pdf"'
-                        os.system(f'move {source} {destination}')
+
+                if path:
+                    st.session_state.path = path  # Store the path in session_state
+                    if ip_col == op_col:
+                        st.error('Select unique columns')
+                    else:
+                        try:
+                            # Ensure the selected columns exist in the DataFrame
+                            l = list(df[op_col])
+                            t = list(df[ip_col])
+                        except KeyError:
+                            st.error("Invalid column Name")
+                            
+
+                        # Renaming files
+                        for i in range(len(l)):
+                            source = f'"{path}\\{t[i-1]}.pdf"'
+                            destination = f'"{path}\\{l[i-1]}.pdf"'
                         
-                    st.success("COMPLETED !!!!")
+                            try:
+                                os.system(f'move {source} {destination}')
+                                st.write(f'{l[i-1]} completed')
+                            except FileNotFoundError:
+                                st.error(f"File {source} not found!")
+                            except Exception as e:
+                                print(e)
+                                st.error(f"Error renaming {source} to {destination}: {str(e)}")
+
+                        st.success("COMPLETED !!!!")
+
+    else:
+        st.warning("Please upload an Excel file to get started.")
+
                                         
                 
     
