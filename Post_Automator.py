@@ -76,7 +76,7 @@ def start(df,i,l,sleep_,pdf_opt):
             return cap[4] if len(cap) == 5 else ''
         return ''
         
-    
+    print('3')
     pdfs = []
     df = df[i-1:l]
     df.index = range(i,l+1)
@@ -91,11 +91,15 @@ def start(df,i,l,sleep_,pdf_opt):
             rt = 0
             while i<=l:
                 ref = df.loc[i,'RPAD Barcode No ']
+                print('4')
+                ln = df.loc[i,'Loan No']
+                print('5')
                 if str(ref)=='nan':
                     i += 1
                     continue
                 if rt == 0:
                     rt = time()
+                sleep(3)
                 ip = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_txtOrignlPgTranNo')
                 ip.clear()
                 ip.send_keys(ref)
@@ -142,7 +146,7 @@ def start(df,i,l,sleep_,pdf_opt):
                     df.loc[i,'time']  = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[2]").text)
                     df.loc[i,'office'] = str(driver.find_element(By.XPATH,"//table[@class = 'responsivetable MailArticleEvntOER']//tbody//tr[2]//td[3]").text)
                     if pdf_opt:
-                        pdfs.append((driver.execute_cdp_cmd('Page.printToPDF',{})['data'],str(df.loc[i,'Loan No'])+'.pdf'))
+                        pdfs.append((driver.execute_cdp_cmd('Page.printToPDF',{})['data'],ln+'.pdf'))
                     btn.click()
                     df_view.dataframe(df)
                     
@@ -155,8 +159,8 @@ def start(df,i,l,sleep_,pdf_opt):
                     i-=1
                 i+=1   
                 sleep(2)
-        except :
-            pass
+        except Exception as e:
+            print(e)
         ot = str(datetime.timedelta(seconds=int(time()-ot)))
         st.write('Total time :- '+ot)
     return df,pdfs
@@ -274,7 +278,8 @@ if page == "Status Extraction":
             if len(list(df.columns)) != 7:
                 st.error('ERROR!!! Invalid Excel Format')
             df.columns = ['Loan No','Name','RPAD Barcode No ','date','time','office','Delivery Report']
-            for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report']:
+            print('1')
+            for i in ['Name','RPAD Barcode No ','date','time','office','Delivery Report','Loan No']:
                 df[i] = df[i].astype(str)
 
             if start_ == '' or not start_.isdigit():
@@ -289,6 +294,7 @@ if page == "Status Extraction":
                 sleep_ = 4
             else:
                 sleep_ = int(sleep_)
+            print('2')
             df,pdfs = start(df,start_,end,sleep_,pdf_opt)
             zip_data = BytesIO()
             with zipfile.ZipFile(zip_data, 'w') as zipf:
