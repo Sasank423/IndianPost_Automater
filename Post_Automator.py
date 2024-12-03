@@ -4,7 +4,11 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-# 
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+#
+
 from xlsxwriter import Workbook
 
 
@@ -76,7 +80,6 @@ def start(df,i,l,sleep_,pdf_opt):
             return cap[4] if len(cap) == 5 else ''
         return ''
         
-    print('3')
     pdfs = []
     df = df[i-1:l]
     df.index = range(i,l+1)
@@ -86,21 +89,21 @@ def start(df,i,l,sleep_,pdf_opt):
     with st.spinner('Please wait..'):
         sleep(1)
     with st.status("Processing.....",expanded=True):
-        try:
-            ot = time()
-            rt = 0
-            while i<=l:
+        ot = time()
+        rt = 0
+        c = 0
+        wait = WebDriverWait(driver, 10)
+        while i<=l:
+            try:
                 ref = df.loc[i,'RPAD Barcode No ']
-                print('4')
                 ln = df.loc[i,'Loan No']
-                print('5')
                 if str(ref)=='nan':
                     i += 1
                     continue
                 if rt == 0:
                     rt = time()
-                sleep(3)
-                ip = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_txtOrignlPgTranNo')
+                
+                ip = wait.until(EC.presence_of_element_located((By.ID, 'ctl00_PlaceHolderMain_ucNewLegacyControl_txtOrignlPgTranNo')))
                 ip.clear()
                 ip.send_keys(ref)
                 while 'number' not in driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_ucCaptcha1_lblCaptcha').text:
@@ -127,7 +130,6 @@ def start(df,i,l,sleep_,pdf_opt):
                 t = time()
                 flag = False
                 while True:
-                    
                     try:
                         btn = driver.find_element(By.ID,'ctl00_PlaceHolderMain_ucNewLegacyControl_btnTrackMore')
                         break
@@ -157,10 +159,13 @@ def start(df,i,l,sleep_,pdf_opt):
                     count += 1
                 except:
                     i-=1
-                i+=1   
+                i+=1
+                c = 0
                 sleep(2)
-        except Exception as e:
-            print(e)
+            except Exception as e:
+                c += 1
+                if c > 2:
+                    i += 1
         ot = str(datetime.timedelta(seconds=int(time()-ot)))
         st.write('Total time :- '+ot)
     return df,pdfs
